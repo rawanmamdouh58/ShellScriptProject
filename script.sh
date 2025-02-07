@@ -1,5 +1,5 @@
 #!/bin/bash
-DBs="$HOME/Documents/ShellScriptProject"
+DBs="$HOME/Documents/ShellScriptProject/DBs"
 
 mkdir -p "$DBs" 
 
@@ -9,11 +9,11 @@ read name
 if [ -z $name ]
 then 
   echo "Error!! Database Name Can not Be Empty "
-elif [ -d DBs/$name ]
+elif [ -d $DBs/$name ]
 then
   echo "Error!! Database Name Is Already Exists"
 else 
-  mkdir DBs/$name
+  mkdir $DBs/$name
   echo "Database $name created successfully."
 
 fi
@@ -25,7 +25,7 @@ if [ -z "$(ls -A DBs)" ]
 then 
    echo "No DataBases Yet"
 else 
- ls -1 DBs #-1 => each db in a new line
+ ls -1 $DBs #-1 => each db in a new line
 fi
 }
 
@@ -85,11 +85,11 @@ createTable(){
 connectDB(){
 echo "Enter The Name Of The DB To Connect : "
 read name
-if [ -d $DBs/$name ]
+if [ -d "$DBs/$name" ]
 then 
   
-  if cd $DBs/$name
-  then 
+  if cd "$DBs/$name" ;
+   then 
      echo "Connection To $name Databse Successed"
   while true;
   do
@@ -105,7 +105,7 @@ then
                    ;;
             "List Tables") 
                 echo "Tables in Your DB Are:"
-                ls -1 $DBs/$name                 
+                ls -1 "$DBs/$name"                 
                  break
                    ;;
            
@@ -151,7 +151,7 @@ fi
 dropDB(){
 echo "Enter The Database Name You Want To Drop : "
 read name
-if [ -d DBs/$name ]
+if [ -d $DBs/$name ]
 then 
  
  if [ ! -z "$(ls -A DBs/$name)" ]
@@ -161,7 +161,7 @@ then
    read answer
    if [ $answer == "y" ]
    then 
-     rm -r DBs/$name    
+     rm -r $DBs/$name    
      echo "Database Dropped Successfully"
      
    else 
@@ -169,7 +169,7 @@ then
     
    fi  
  else
-   rmdir DBs/$name
+   rmdir $DBs/$name
    echo "Database Dropped Successfully"
  fi
 else echo "Error!! Database Name You Entered Not Exist!" 
