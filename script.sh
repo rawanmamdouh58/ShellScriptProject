@@ -21,7 +21,7 @@ fi
 }
 listDB(){
 echo "List Of Databases:"
-if [ -z "$(ls -A DBs)" ] 
+if [ -z "$(ls DBs)" ] 
 then 
    echo "No DataBases Yet"
 else 
@@ -31,12 +31,12 @@ fi
 
 createTable(){
     echo "Enter A Table Name"
-    read name
+    read table_name
      
-    if [ -z $name ]
+    if [ -z $table_name ]
     then 
         echo "Error!! Table Name Can Not Be Empty" 
-    elif [ -f $name ]
+    elif [ -f $table_name ]
     then
         echo "Error!! Table Name Already Exists"
   
@@ -70,12 +70,12 @@ createTable(){
             fi
         done
 
-       echo $columns > metadata.$name        
-       echo $datatypes >>metadata.$name 
-       echo $pk >> metadata.$name
+       echo $columns > metadata.$table_name        
+       echo $datatypes >>metadata.$table_name 
+       echo $pk >> metadata.$table_name 
 
-        touch $name 
-        echo "Table $name Created Successfully"
+        echo "$columns" > $table_name 
+        echo "Table $table_name Created Successfully"
     fi
 
 }
@@ -84,18 +84,18 @@ createTable(){
 
 connectDB(){
 echo "Enter The Name Of The DB To Connect : "
-read name
-if [ -d "$DBs/$name" ]
+read db_name
+if [ -d "$DBs/$db_name" ]
 then 
   
-  if cd "$DBs/$name" ;
+  if cd "$DBs/$db_name" ;
    then 
-     echo "Connection To $name Databse Successed"
+     echo "Connection To $db_name Databse Successed"
   while true;
   do
   echo "Your Database Menu: "
   
-   select item in "Create Table" "List Tables" "Insert Tables" "Select From Table" "Delete From Table" "Update Table" "Drop Table" "Exit"
+   select item in "Create Table" "List Tables" "Insert Into Tables" "Select From Table" "Delete From Table" "Update Table" "Drop Table" "Exit"
    do
         case $item in 
             "Create Table")
@@ -105,13 +105,12 @@ then
                    ;;
             "List Tables") 
                 echo "Tables in Your DB Are:"
-                ls -1 "$DBs/$name"                 
+                ls -1 "$DBs/$db_name"                 
                  break
                    ;;
-           
-            "Insert Tables") 
-                 
-                 #break
+            "Insert Into Tables") 
+                insertIntoTable 
+                break
                    ;;
             "Select From Table")
                  #break
@@ -121,6 +120,10 @@ then
                    ;;
             "Update Table")
                    ;;
+	   "Drop Table")
+		dropTable
+		break
+		  ;;
             "Exit")
                  
                  break 2
@@ -147,6 +150,83 @@ else
 fi 
 
 }
+
+insertIntoTable(){
+    echo "Enter Table Name You Want To Insert Into: "
+    read table_name
+
+    if [ ! -f "$table_name" ]; then
+        echo "Error!! Table '$table_name' Does Not Exist!"
+        return
+    fi
+
+    columns=$(sed -n '1p' "metadata.$table_name")
+    datatypes=$(sed -n '2p' "metadata.$table_name")
+    pk=$(sed -n '3p' "metadata.$table_name")
+
+    numColumns=$(echo "$columns" | tr ',' '\n' | wc -l)
+    
+    echo "Columns: $columns"
+    echo "Enter Values Separated By Commas: "
+    read values
+
+    numValues=$(echo "$values" | tr ',' '\n' | wc -l)
+
+    if [ "$numValues" -ne "$numColumns" ]; then
+        echo "Error!! Number of Values Does Not Match Number of Columns!"
+        return
+    fi
+
+    IFS=',' read -ra colArr <<< "$columns"
+    IFS=',' read -ra typeArr <<< "$datatypes"
+    IFS=',' read -ra valArr <<< "$values"
+
+    for i in "${!typeArr[@]}"; do
+        case "${typeArr[$i]}" in
+            int)
+                if ! [[ "${valArr[$i]}" =~ ^[0-9]+$ ]]; then
+                    echo "Error!! Column '${colArr[$i]}' Requires an Integer Value!"
+                    return
+                fi
+                ;;
+            string)
+                if ! [[ "${valArr[$i]}" =~ ^[a-zA-Z0-9]+$ ]]; then
+                    echo "Error!! Column '${colArr[$i]}' Requires a String!"
+                    return
+                fi
+                ;;
+            float)
+                if ! [[ "${valArr[$i]}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                    echo "Error!! Column '${colArr[$i]}' Requires a Float Value!"
+                    return
+                fi
+                ;;
+            *)
+                echo "Error!! Unknown Data Type for Column '${colArr[$i]}'!"
+                return
+                ;;
+        esac
+    done
+
+    pkIndex=-1
+    for i in "${!colArr[@]}"; do
+        if [[ "${colArr[$i]}" == "$pk" ]]; then
+            pkIndex=$i
+            break
+        fi
+    done
+
+    if [[ $pkIndex -ne -1 ]]; then
+        pkValue="${valArr[$pkIndex]}"
+        if grep -q "^$pkValue," "$table_name"; then
+            echo "Error!! Primary Key '$pk' Value '$pkValue' Already Exists!"
+            return
+        fi
+    fi
+    echo "$values" >> "$table_name"
+    echo "Data Inserted Successfully!"
+}
+
 
 dropDB(){
 echo "Enter The Database Name You Want To Drop : "
@@ -179,6 +259,32 @@ fi
 while true;
 do
 echo "Main Menu: "
+
+
+dropTable(){
+    echo "Enter The Table Name You Want To Drop: "
+    read table_name
+
+    if [ -f "$DBs/$db_name/$table_name" ]; 
+	then
+        echo "Are You Sure You Want To Drop Table '$table_name'? (y/n)"
+        read answer
+        if [ "$answer" == "y" ];
+	 then
+            rm "$DBs/$db_name/$table_name"  
+            if [ -f "$DBs/$db_name/metadata.$table_name" ];
+	 then
+                rm "$DBs/$db_name/metadata.$table_name"  
+            fi
+            echo "Table '$table_name' and its metadata Dropped Successfully!"
+        else
+            echo "Drop Table Cancelled!"
+        fi
+    else
+        echo "Error!! Table '$table_name' Does Not Exist!"
+    fi
+}
+
 
 select item in "Create Database" "List Database" "Connect To Database" "Drop Database" "Exit"
 do
