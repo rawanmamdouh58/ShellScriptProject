@@ -113,10 +113,12 @@ then
                 break
                    ;;
             "Select From Table")
-                 #break
+                 selectFromTable
+                 break
                    ;;
             "Delete From Table")
-                #break
+                 deleteFromTable
+                 break
                    ;;
             "Update Table")
                    ;;
@@ -151,8 +153,80 @@ fi
 
 }
 
+
 insertIntoTable(){
     echo "Enter Table Name You Want To Insert Into: "
+    read table_name
+
+    if [ ! -f $table_name ]; then
+        echo "Error!! Table '$table_name' Does Not Exist!"
+        return
+    fi
+
+    columns=$(sed -n '1p' metadata.$table_name)
+    datatypes=$(sed -n '2p' metadata.$table_name)
+    pk=$(sed -n '3p' metadata.$table_name)
+
+    echo "Columns: $columns"
+    echo "Enter Values Separated By Commas: "
+    read values
+
+    colArr=($(echo $columns | tr ',' ' '))
+    typeArr=($(echo $datatypes | tr ',' ' '))
+    valArr=($(echo $values | tr ',' ' '))
+
+    if [ "${#colArr[@]}" -ne "${#valArr[@]}" ]; then
+        echo "Error!! Number of values does not match number of columns!"
+        return
+    fi
+
+    for i in "${!colArr[@]}"; do
+        case "${typeArr[$i]}" in
+            int)
+                if [[ ! "${valArr[$i]}" =~ ^[0-9]+$ ]]; then
+                    echo "Error!! Column '${colArr[$i]}' requires an integer!"
+                    return
+                fi
+                ;;
+            string)
+                if [[ ! "${valArr[$i]}" =~ ^[a-zA-Z0-9]+$ ]]; then
+                    echo "Error!! Column '${colArr[$i]}' requires a string!"
+                    return
+                fi
+                ;;
+            float)
+                if [[ ! "${valArr[$i]}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                    echo "Error!! Column '${colArr[$i]}' requires a float!"
+                    return
+                fi
+                ;;
+            *)
+                echo "Error!! Unknown data type for column '${colArr[$i]}'!"
+                return
+                ;;
+        esac
+    done
+
+    for i in "${!colArr[@]}"; do
+        if [[ "${colArr[$i]}" == "$pk" ]]; then
+            pkIndex=$i
+            break
+        fi
+    done
+
+    if grep -q "^${valArr[$pkIndex]}," "$table_name"; then
+        echo "Error!! Primary Key '$pk' value '${valArr[$pkIndex]}' already exists!"
+        return
+    fi
+
+    echo "$values" >> $table_name
+    echo "Data Inserted Successfully!"
+}
+
+
+  
+selectFromTable(){
+    echo "Enter Table Name You Want To Select From: "
     read table_name
 
     if [ ! -f "$table_name" ]; then
@@ -161,70 +235,114 @@ insertIntoTable(){
     fi
 
     columns=$(sed -n '1p' "metadata.$table_name")
-    datatypes=$(sed -n '2p' "metadata.$table_name")
-    pk=$(sed -n '3p' "metadata.$table_name")
+    colArr=($(echo "$columns" | tr ',' ' '))
 
-    numColumns=$(echo "$columns" | tr ',' '\n' | wc -l)
-    
     echo "Columns: $columns"
-    echo "Enter Values Separated By Commas: "
-    read values
+    echo "1) Select Specific Columns"
+    echo "2) Select All Rows"
+    echo "3) Select Rows Where a Column Matches a Value"
+    read -p "Choose an option (1-3): " choice
 
-    numValues=$(echo "$values" | tr ',' '\n' | wc -l)
+    case $choice in
+        1)
+            echo "Enter Column Names Separated by Commas: "
+            read selected_cols
 
-    if [ "$numValues" -ne "$numColumns" ]; then
-        echo "Error!! Number of Values Does Not Match Number of Columns!"
+            colIndices=""
+            for col in $(echo "$selected_cols" | tr ',' ' '); do
+                for i in "${!colArr[@]}"; do
+                    if [[ "${colArr[$i]}" == "$col" ]]; then
+                        colIndices+="$((i+1)),"  
+                        break
+                    fi
+                done
+            done
+
+            colIndices=${colIndices%,}  
+
+            if [[ -z "$colIndices" ]]; then
+                echo "Error!! No valid columns selected!"
+                return
+            fi
+
+            awk -F ',' -v cols="$colIndices" '
+            BEGIN { split(cols, colArr, ",") }
+            {
+                for (i in colArr) printf "%s\t", $colArr[i]
+                print ""
+            }' "$table_name" | column -t
+            ;;
+        2)
+            column -t -s "," "$table_name"
+            ;;
+        3)
+            echo "Enter Column Name to Filter By: "
+            read column_name
+            colIndex=-1
+
+            for i in "${!colArr[@]}"; do
+                if [[ "${colArr[$i]}" == "$column_name" ]]; then
+                    colIndex=$((i + 1))
+                    break
+                fi
+            done
+
+            if [[ $colIndex -eq -1 ]]; then
+                echo "Error!! Column '$column_name' Does Not Exist!"
+                return
+            fi
+
+            echo "Enter Value to Search: "
+            read search_value
+
+            awk -F ',' -v col="$colIndex" -v val="$search_value" '$col == val' "$table_name" | column -t -s ","
+            ;;
+        *)
+            echo "Invalid Option!"
+            ;;
+    esac
+}
+
+deleteFromTable(){
+    echo "Enter Table Name You Want to Delete From: "
+    read table_name
+
+    if [ ! -f "$table_name" ]; then
+        echo "Error!! Table '$table_name' Does Not Exist!"
         return
     fi
 
-    IFS=',' read -ra colArr <<< "$columns"
-    IFS=',' read -ra typeArr <<< "$datatypes"
-    IFS=',' read -ra valArr <<< "$values"
+    columns=$(sed -n '1p' "metadata.$table_name")
+    colArr=($(echo "$columns" | tr ',' ' '))
 
-    for i in "${!typeArr[@]}"; do
-        case "${typeArr[$i]}" in
-            int)
-                if ! [[ "${valArr[$i]}" =~ ^[0-9]+$ ]]; then
-                    echo "Error!! Column '${colArr[$i]}' Requires an Integer Value!"
-                    return
-                fi
-                ;;
-            string)
-                if ! [[ "${valArr[$i]}" =~ ^[a-zA-Z0-9]+$ ]]; then
-                    echo "Error!! Column '${colArr[$i]}' Requires a String!"
-                    return
-                fi
-                ;;
-            float)
-                if ! [[ "${valArr[$i]}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-                    echo "Error!! Column '${colArr[$i]}' Requires a Float Value!"
-                    return
-                fi
-                ;;
-            *)
-                echo "Error!! Unknown Data Type for Column '${colArr[$i]}'!"
-                return
-                ;;
-        esac
-    done
+    echo "Columns: $columns"
+    echo "Enter Column Name to Filter Rows for Deletion: "
+    read column_name
 
-    pkIndex=-1
+    colIndex=-1
     for i in "${!colArr[@]}"; do
-        if [[ "${colArr[$i]}" == "$pk" ]]; then
-            pkIndex=$i
+        if [[ "${colArr[$i]}" == "$column_name" ]]; then
+            colIndex=$((i + 1)) 
             break
         fi
     done
 
-    if [[ $pkIndex -ne -1 ]]; then
-        pkValue="${valArr[$pkIndex]}"
-        if grep -q "^$pkValue," "$table_name"; then
-            echo "Error!! Primary Key '$pk' Value '$pkValue' Already Exists!"
-            return
-        fi
+    if [[ $colIndex -eq -1 ]]; then
+        echo "Error!! Column '$column_name' Does Not Exist!"
+        return
     fi
-    echo "$values" >> "$table_name"
-    echo "Data Inserted Successfully!"
+
+    echo "Enter Value for $column_name to Delete Rows: "
+    read search_value
+
+    temp_file=$(mktemp)  
+    awk -F ',' -v col="$colIndex" -v val="$search_value" '
+    NR == 1 { print $0 }  # Always keep the header
+    NR > 1 && $col != val { print $0 }  
+    ' "$table_name" > "$temp_file"
+
+    mv "$temp_file" "$table_name"  
+    echo "Rows matching '$search_value' in column '$column_name' deleted successfully."
 }
 
 
