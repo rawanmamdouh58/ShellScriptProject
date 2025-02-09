@@ -121,6 +121,8 @@ then
                  break
                    ;;
             "Update Table")
+            	updateTable
+            	break
                    ;;
 	   "Drop Table")
 		dropTable
@@ -226,6 +228,96 @@ insertIntoTable(){
 
     echo "$values" >> "$table_name"
     echo "Data Inserted Successfully!"
+}
+ 
+ 
+updateTable() {
+  echo "Enter Table Name You Want To Update: "
+  read table_name
+
+  if [[ ! -f "$table_name" ]]; then  
+    echo "Error!! Table '$table_name' Does Not Exist!" 
+    return 1
+  fi
+
+  
+  header=$(head -n 1 "$table_name")
+  echo "Columns: $header"
+
+  echo "Enter the Column Name You Want to Update:"
+  read col_name
+
+  echo "Enter the New Value:"
+  read new_val
+
+  echo "Enter the Condition to Find Old Value By ( column_name=old_value): "
+  read condition
+
+  metadata_file="metadata.$table_name"
+  if [[ -f "$metadata_file" ]]; then
+    IFS=',' read -a col_names < <(head -n 1 "$metadata_file")
+    IFS=',' read -a data_types < <(head -n 2 "$metadata_file")
+    IFS=',' read pk_col < <(head -n 3 "$metadata_file")
+
+    col_index=-1
+    for i in "${!col_names[@]}"; do
+      if [[ "${col_names[$i]}" == "$col_name" ]]; then
+        col_index="$i"
+        data_type="${data_types[$i]}"
+        break
+      fi
+    done
+
+    if [[ "$col_index" -eq -1 ]]; then
+      echo "Error: Column '$col_name' not found." 
+      return 
+    fi
+
+    case "$data_type" in
+      int)
+        if [[ ! "$new_val" =~ ^[0-9]+$ ]]; then
+          echo "Error: New value must be an integer for column '$col_name'." >&2
+          return 1
+        fi
+        ;;
+       string)
+                if [[ ! "$new_val" =~ ^[a-zA-Z0-9]+$ ]]; then
+                    echo "Error!! Column '$col_name' requires a string!"
+                    return
+                fi
+
+        ;;
+       float)
+                if [[ ! "$new_val" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                    echo "Error!! Column '$col_name' requires a float!"
+                    return
+                fi
+       ;;
+       
+    esac
+
+  else
+    echo "Error: Metadata file not found." 
+  fi
+
+  awk -v col_name="$col_name" -v new_val="$new_val" -v condition="$condition" '
+    BEGIN { FS=","; OFS=","; 
+            getline header <FILENAME; split(header, cols, FS);
+            for (i=1; i<=length(cols); i++) if (cols[i] == col_name) col_index = i;
+            if (col_index == -1) { print "Error: Column \"" col_name "\" not found." ; exit 1; }
+    }
+    $0 ~ condition { if (col_index) $(col_index) = new_val; print; }
+    END { if (!updated && col_index) print "Warning: No matching rows for \"" condition "\"." ;}
+  ' "$table_name" > temp && mv temp "$table_name"
+
+
+  if [[ $? -eq 0 ]]; then
+    echo "Update Successful. Updated Table:"
+    cat "$table_name"
+  else
+    echo "Error during update." 
+    return 1
+  fi
 }
  
 selectFromTable(){
