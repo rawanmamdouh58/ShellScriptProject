@@ -19,6 +19,7 @@ else
 fi
 
 }
+
 listDB(){
 echo "List Of Databases:"
 if [ -z "$(ls DBs)" ] 
@@ -99,7 +100,6 @@ then
    do
         case $item in 
             "Create Table")
-              
                  createTable
                  break       
                    ;;
@@ -158,7 +158,8 @@ insertIntoTable(){
     echo "Enter Table Name You Want To Insert Into: "
     read table_name
 
-    if [ ! -f $table_name ]; then
+    if [ ! -f $table_name ]; 
+    then
         echo "Error!! Table '$table_name' Does Not Exist!"
         return
     fi
@@ -175,7 +176,8 @@ insertIntoTable(){
     typeArr=($(echo $datatypes | tr ',' ' '))
     valArr=($(echo $values | tr ',' ' '))
 
-    if [ "${#colArr[@]}" -ne "${#valArr[@]}" ]; then
+    if [ "${#colArr[@]}" -ne "${#valArr[@]}" ]; 
+    then
         echo "Error!! Number of values does not match number of columns!"
         return
     fi
@@ -208,23 +210,24 @@ insertIntoTable(){
     done
 
     for i in "${!colArr[@]}"; do
-        if [[ "${colArr[$i]}" == "$pk" ]]; then
-            pkIndex=$i
-            break
-        fi
+    if [[ "${colArr[$i]}" == "$pk" ]]; then
+        pkIndex=$i
+        break
+    fi
     done
 
-    if grep -q "^${valArr[$pkIndex]}," "$table_name"; then
-        echo "Error!! Primary Key '$pk' value '${valArr[$pkIndex]}' already exists!"
+    pkValue="${valArr[$pkIndex]}"
+
+    if cut -d ',' -f "$((pkIndex + 1))" "$table_name" | grep -qx "$pkValue"; 
+    then
+        echo "Error!! Primary Key '$pk' value '$pkValue' already exists!"
         return
     fi
 
-    echo "$values" >> $table_name
+    echo "$values" >> "$table_name"
     echo "Data Inserted Successfully!"
 }
-
-
-  
+ 
 selectFromTable(){
     echo "Enter Table Name You Want To Select From: "
     read table_name
@@ -252,28 +255,25 @@ selectFromTable(){
             for col in $(echo "$selected_cols" | tr ',' ' '); do
                 for i in "${!colArr[@]}"; do
                     if [[ "${colArr[$i]}" == "$col" ]]; then
-                        colIndices+="$((i+1)),"  
+                    	  if [[ -z "$colIndices" ]]; then
+    				colIndices="\$"$((i+1))  
+			  else
+   				colIndices+=",\$"$((i+1)) 
+		    fi
                         break
                     fi
                 done
             done
-
-            colIndices=${colIndices%,}  
 
             if [[ -z "$colIndices" ]]; then
                 echo "Error!! No valid columns selected!"
                 return
             fi
 
-            awk -F ',' -v cols="$colIndices" '
-            BEGIN { split(cols, colArr, ",") }
-            {
-                for (i in colArr) printf "%s\t", $colArr[i]
-                print ""
-            }' "$table_name" | column -t
+            awk -F ',' "{ print $colIndices }" "$table_name"
             ;;
         2)
-            column -t -s "," "$table_name"
+            awk -F ',' '{ for (i=1; i<=NF; i++) printf $i "\t"; print "" }' "$table_name"
             ;;
         3)
             echo "Enter Column Name to Filter By: "
@@ -295,7 +295,7 @@ selectFromTable(){
             echo "Enter Value to Search: "
             read search_value
 
-            awk -F ',' -v col="$colIndex" -v val="$search_value" '$col == val' "$table_name" | column -t -s ","
+            awk -F ',' -v col="$colIndex" -v val="$search_value" '$col == val' $table_name
             ;;
         *)
             echo "Invalid Option!"
@@ -312,7 +312,7 @@ deleteFromTable(){
         return
     fi
 
-    columns=$(sed -n '1p' "metadata.$table_name")
+    columns=$(sed -n '1p' metadata.$table_name)
     colArr=($(echo "$columns" | tr ',' ' '))
 
     echo "Columns: $columns"
@@ -323,7 +323,7 @@ deleteFromTable(){
     for i in "${!colArr[@]}"; do
         if [[ "${colArr[$i]}" == "$column_name" ]]; then
             colIndex=$((i + 1)) 
-            break
+            break  
         fi
     done
 
@@ -335,16 +335,23 @@ deleteFromTable(){
     echo "Enter Value for $column_name to Delete Rows: "
     read search_value
 
+  
+    echo "Are you sure you want to delete rows where '$column_name' = '$search_value'? (y/n)"
+    read confirmation
+    if [[ "$confirmation" != "y" ]]; then
+        echo "Deletion cancelled."
+        return
+    fi
+
     temp_file=$(mktemp)  
     awk -F ',' -v col="$colIndex" -v val="$search_value" '
-    NR == 1 { print $0 }  # Always keep the header
-    NR > 1 && $col != val { print $0 }  
-    ' "$table_name" > "$temp_file"
+    NR == 1 { print $0 }  
+    NR > 1 && $col != val { print $0 }' "$table_name" > "$temp_file"
 
     mv "$temp_file" "$table_name"  
     echo "Rows matching '$search_value' in column '$column_name' deleted successfully."
 }
-
+       
 
 dropDB(){
 echo "Enter The Database Name You Want To Drop : "
@@ -383,16 +390,16 @@ dropTable(){
     echo "Enter The Table Name You Want To Drop: "
     read table_name
 
-    if [ -f "$DBs/$db_name/$table_name" ]; 
+    if [ -f $table_name ]; 
 	then
         echo "Are You Sure You Want To Drop Table '$table_name'? (y/n)"
         read answer
         if [ "$answer" == "y" ];
 	 then
-            rm "$DBs/$db_name/$table_name"  
-            if [ -f "$DBs/$db_name/metadata.$table_name" ];
+            rm $table_name 
+            if [ -f metadata.$table_name ];
 	 then
-                rm "$DBs/$db_name/metadata.$table_name"  
+                rm metadata.$table_name  
             fi
             echo "Table '$table_name' and its metadata Dropped Successfully!"
         else
