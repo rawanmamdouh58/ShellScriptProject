@@ -230,94 +230,117 @@ insertIntoTable(){
     echo "Data Inserted Successfully!"
 }
  
- 
 updateTable() {
-  echo "Enter Table Name You Want To Update: "
-  read table_name
+    echo "Enter Table Name You Want To Update: "
+    read table_name
 
-  if [[ ! -f "$table_name" ]]; then  
-    echo "Error!! Table '$table_name' Does Not Exist!" 
-    return 1
-  fi
-
-  
-  header=$(head -n 1 "$table_name")
-  echo "Columns: $header"
-
-  echo "Enter the Column Name You Want to Update:"
-  read col_name
-
-  echo "Enter the New Value:"
-  read new_val
-
-  echo "Enter the Condition to Find Old Value By ( column_name=old_value): "
-  read condition
-
-  metadata_file="metadata.$table_name"
-  if [[ -f "$metadata_file" ]]; then
-    IFS=',' read -a col_names < <(head -n 1 "$metadata_file")
-    IFS=',' read -a data_types < <(head -n 2 "$metadata_file")
-    IFS=',' read pk_col < <(head -n 3 "$metadata_file")
-
-    col_index=-1
-    for i in "${!col_names[@]}"; do
-      if [[ "${col_names[$i]}" == "$col_name" ]]; then
-        col_index="$i"
-        data_type="${data_types[$i]}"
-        break
-      fi
-    done
-
-    if [[ "$col_index" -eq -1 ]]; then
-      echo "Error: Column '$col_name' not found." 
-      return 
+    if [[ ! -f "$table_name" ]]; then  
+        echo "Error!! Table '$table_name' Does Not Exist!" 
+        return 1
     fi
 
-    case "$data_type" in
-      int)
-        if [[ ! "$new_val" =~ ^[0-9]+$ ]]; then
-          echo "Error: New value must be an integer for column '$col_name'." >&2
-          return 1
-        fi
-        ;;
-       string)
-                if [[ ! "$new_val" =~ ^[a-zA-Z0-9]+$ ]]; then
-                    echo "Error!! Column '$col_name' requires a string!"
-                    return
-                fi
+    columns=$(sed -n '1p' "metadata.$table_name")
+    datatypes=$(sed -n '2p' "metadata.$table_name")
+    pk_column=$(sed -n '3p' "metadata.$table_name")
 
-        ;;
-       float)
-                if [[ ! "$new_val" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-                    echo "Error!! Column '$col_name' requires a float!"
-                    return
-                fi
-       ;;
-       
+    colArr=($(echo "$columns" | tr ',' ' '))
+    typeArr=($(echo "$datatypes" | tr ',' ' '))
+
+    echo "Columns: $columns"
+    echo "Enter the Column Name You Want to Update:"
+    read col_name
+
+    colIndex=-1
+    for i in "${!colArr[@]}"; do
+        if [[ "${colArr[$i]}" == "$col_name" ]]; then
+            colIndex=$((i + 1))
+            data_type="${typeArr[$i]}"
+            break
+        fi
+    done
+
+    if [[ $colIndex -eq -1 ]]; then
+        echo "Error!! Column '$col_name' Not Found."
+        return 1
+    fi
+
+    echo "Enter the New Value:"
+    read new_val
+
+    case "$data_type" in
+        int)
+            if [[ ! "$new_val" =~ ^[0-9]+$ ]]; then
+                echo "Error!! Column '$col_name' Requires an Integer!"
+                return 1
+            fi
+            ;;
+        string)
+            if [[ ! $new_val =~ ^[a-zA-Z0-9\ ]+$ ]]; then
+    		echo "Error!! Column '$col_name' Requires a String!"
+   		return 1
+	    fi
+	    ;;
+        float)
+            if [[ ! "$new_val" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                echo "Error!! Column '$col_name' Requires a Float!"
+                return 1
+            fi
+            ;;
+        *)
+            echo "Error!! Unknown Data Type for Column '$col_name'!"
+            return 1
+            ;;
     esac
 
-  else
-    echo "Error: Metadata file not found." 
-  fi
+    echo "Enter the Condition to Find the Row to Update (column_name=value):"
+    read condition
 
-  awk -v col_name="$col_name" -v new_val="$new_val" -v condition="$condition" '
-    BEGIN { FS=","; OFS=","; 
-            getline header <FILENAME; split(header, cols, FS);
-            for (i=1; i<=length(cols); i++) if (cols[i] == col_name) col_index = i;
-            if (col_index == -1) { print "Error: Column \"" col_name "\" not found." ; exit 1; }
+    condition_col=$(echo "$condition" | cut -d '=' -f 1)
+    condition_val=$(echo "$condition" | cut -d '=' -f 2)
+
+    condIndex=-1
+    for i in "${!colArr[@]}"; do
+        if [[ "${colArr[$i]}" == "$condition_col" ]]; then
+            condIndex=$((i + 1))
+            break
+        fi
+    done
+
+    if [[ $condIndex -eq -1 ]]; then
+        echo "Error!! Column '$condition_col' Not Found."
+        return 1
+    fi
+
+    temp_file=$(mktemp)
+    updated=0
+
+    awk -F ',' -v col="$colIndex" -v new_val="$new_val" -v cond_col="$condIndex" -v cond_val="$condition_val" '
+    BEGIN { OFS="," }
+    {
+        if (NR == 1) {
+            print $0
+        } else {
+            if ($cond_col == cond_val) {
+                $col = new_val
+                updated = 1
+            }
+            print $0
+        }
     }
-    $0 ~ condition { if (col_index) $(col_index) = new_val; print; }
-    END { if (!updated && col_index) print "Warning: No matching rows for \"" condition "\"." ;}
-  ' "$table_name" > temp && mv temp "$table_name"
+    END {
+        if (!updated) {
+            print "Warning: No Matching Rows Found!" > "/dev/stderr"
+        }
+    }' "$table_name" > "$temp_file"
 
-
-  if [[ $? -eq 0 ]]; then
-    echo "Update Successful. Updated Table:"
-    cat "$table_name"
-  else
-    echo "Error during update." 
-    return 1
-  fi
+    if grep -q "Warning: No Matching Rows Found!" "$temp_file"; then
+        cat "$temp_file"
+        rm "$temp_file"
+        return 1
+    else
+        mv "$temp_file" "$table_name"
+        echo "Update Successful!"
+    fi
 }
  
 selectFromTable(){
